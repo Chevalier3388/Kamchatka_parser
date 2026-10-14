@@ -56,6 +56,22 @@ def extract_pages(path: Path) -> list[str]:
     return pages
 
 
+def duration_to_seconds(value: str) -> int:
+    """Преобразует длительность ЧЧ:ММ:СС в целые секунды."""
+    value = value.strip()
+
+    if re.fullmatch(r"\d{2,}:[0-5]\d:[0-5]\d", value) is None:
+        raise ValueError(f"Некорректная длительность: {value}")
+
+    hours, minutes, seconds = value.split(":")
+
+    return (
+            int(hours) * 3600
+            + int(minutes) * 60
+            + int(seconds)
+    )
+
+
 def split_region_and_results(text: str) -> tuple[str, str]:
     """Отделяет регион от текста результатов по первому времени или статусу."""
     match = re.search(
