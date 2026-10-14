@@ -10,6 +10,12 @@ PDF_PATH = PROJECT_ROOT / "docs" / "Total_result_Avacha-2026.pdf"
 # Цвет символов водяного знака в PDF-протоколе за 2026 год.
 WATERMARK_GRAY = 0.9098039
 
+DISCIPLINE_CODES = {
+    "Лыжи длинная дистанция 2 собаки": "ski_2",
+    "Нарта-длинная дистанция 8 собак": "sled_8",
+    "Нарта-длинная дистанция более 8 собак": "sled_8plus",
+}
+
 
 def keep_object(obj: dict) -> bool:
     """Проверяет, нужно ли сохранять объект PDF при фильтрации."""
@@ -76,26 +82,57 @@ def parse_participant_header(line: str) -> dict | None:
     }
 
 
-def main() -> None:
-    pages = extract_pages(PDF_PATH)
-    participant_count = 0
+def parse_participants(pages: list[str]) -> list[dict]:
+    """Собирает участников и связывает их с дисциплинами из PDF."""
+    participants = []
+    discipline_name = None
+    discipline_code = None
 
     for text in pages:
         for line in text.splitlines():
+            line = line.strip()
+
+            if line.startswith("Дисциплина "):
+                discipline_name = line.removeprefix("Дисциплина ").strip()
+                discipline_code = DISCIPLINE_CODES.get(discipline_name)
+
+                if discipline_code is None:
+                    raise ValueError(
+                        f"Неизвестная дисциплина: {discipline_name}"
+                    )
+
+                continue
+
             participant = parse_participant_header(line)
 
             if participant is None:
                 continue
 
-            participant_count += 1
+            if discipline_code is None:
+                raise ValueError(
+                    f"Участник найден до заголовка дисциплины: {line}"
+                )
 
-            print(
-                f"Номер {participant['start_number']}: "
-                f"{participant['full_name']}, "
-                f"{participant['birth_year']} г.р."
-            )
+            participant["discipline_code"] = discipline_code
+            participant["discipline_name"] = discipline_name
+            participants.append(participant)
 
-    print(f"\nНайдено участников: {participant_count}")
+    return participants
+
+
+def main() -> None:
+    pages = extract_pages(PDF_PATH)
+    participants = parse_participants(pages)
+
+    for participant in participants:
+        print(
+            f"Номер {participant['start_number']}: "
+            f"{participant['full_name']}, "
+            f"{participant['birth_year']} г. р. — "
+            f"{participant['discipline_code']}"
+        )
+
+    print(f"\nНайдено участников: {len(participants)}")
 
 
 if __name__ == "__main__":
