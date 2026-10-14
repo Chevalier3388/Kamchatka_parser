@@ -56,8 +56,27 @@ def extract_pages(path: Path) -> list[str]:
     return pages
 
 
+def split_region_and_results(text: str) -> tuple[str, str]:
+    """Отделяет регион от текста результатов по первому времени или статусу."""
+    match = re.search(
+        r"\b(?:\d{2,}:\d{2}:\d{2}|DNF|DNS|DSQ)\b",
+        text,
+    )
+
+    if match is None:
+        raise ValueError(f"Не найден первый результат этапа: {text}")
+
+    region = text[:match.start()].strip()
+    results_text = text[match.start():].strip()
+
+    if not region:
+        raise ValueError(f"Не указан регион: {text}")
+
+    return region, results_text
+
+
 def parse_participant_header(line: str) -> dict | None:
-    """Извлекает номер, ФИО и год рождения из строки участника."""
+    """Извлекает данные участника и отделяет текст его результатов."""
     line = line.strip()
 
     if re.match(r"^\d+\s+\d+\s+", line) is None:
@@ -74,11 +93,16 @@ def parse_participant_header(line: str) -> dict | None:
     if match is None:
         raise ValueError(f"Не удалось разобрать строку участника: {line}")
 
+    region, results_text = split_region_and_results(
+        match.group("remaining_text")
+    )
+
     return {
         "start_number": int(match.group("start_number")),
         "full_name": match.group("full_name"),
         "birth_year": int(match.group("birth_year")),
-        "remaining_text": match.group("remaining_text"),
+        "region": region,
+        "results_text": results_text,
     }
 
 
@@ -129,7 +153,8 @@ def main() -> None:
             f"Номер {participant['start_number']}: "
             f"{participant['full_name']}, "
             f"{participant['birth_year']} г. р. — "
-            f"{participant['discipline_code']}"
+            f"{participant['discipline_code']} — "
+            f"{participant['region']}"
         )
 
     print(f"\nНайдено участников: {len(participants)}")
