@@ -201,6 +201,62 @@ def parse_participants(pages: list[str]) -> list[dict]:
     return participants
 
 
+def parse_stage_results(
+        text: str,
+        stages: list[dict],
+) -> tuple[list[dict], str]:
+    """Разбирает результаты этапов и отделяет текст общего итога."""
+    tokens = text.split()
+    stage_token_count = len(stages) * 2
+
+    if len(tokens) < stage_token_count + 2:
+        raise ValueError(
+            f"Недостаточно данных для результатов этапов: {text}"
+        )
+
+    results = []
+
+    for index, stage in enumerate(stages):
+        raw_result = tokens[index * 2]
+        raw_speed = tokens[index * 2 + 1]
+
+        if re.fullmatch(
+                r"\d+(?:[.,]\d+)?|#ЗНАЧ!|#ДЕЛ/0!",
+                raw_speed,
+        ) is None:
+            raise ValueError(
+                f"Неожиданное значение скорости "
+                f"этапа {stage['number']}: {raw_speed}"
+            )
+
+        status = None
+        final_time_seconds = None
+        warning = None
+
+        if raw_result in ("DNF", "DNS", "DSQ"):
+            status = raw_result.lower()
+        else:
+            seconds = duration_to_seconds(raw_result)
+
+            if seconds == 0:
+                warning = "Нулевое значение: статус этапа требует проверки"
+            else:
+                status = "finished"
+                final_time_seconds = seconds
+
+        results.append({
+            "stage_number": stage["number"],
+            "raw_result": raw_result,
+            "status": status,
+            "final_time_seconds": final_time_seconds,
+            "warning": warning,
+        })
+
+    summary_text = " ".join(tokens[stage_token_count:])
+
+    return results, summary_text
+
+
 def main() -> None:
     pages = extract_pages(PDF_PATH)
     stages = parse_stages(pages)
@@ -216,13 +272,29 @@ def main() -> None:
     participants = parse_participants(pages)
 
     for participant in participants:
-        print(
-            f"Номер {participant['start_number']}: "
-            f"{participant['full_name']}, "
-            f"{participant['birth_year']} г. р. — "
-            f"{participant['discipline_code']} — "
-            f"{participant['region']}"
+        results, summary_text = parse_stage_results(
+            participant["results_text"],
+            stages,
         )
+
+        participant["stage_results"] = results
+        participant["summary_text"] = summary_text
+
+        print(
+            f"\nНомер {participant['start_number']}: "
+            f"{participant['full_name']}"
+        )
+
+        for result in results:
+            status_text = result["status"] or "требует проверки"
+            seconds = result["final_time_seconds"]
+            time_text = "—" if seconds is None else f"{seconds} с"
+
+            print(
+                f"  Этап {result['stage_number']}: "
+                f"{result['raw_result']} → "
+                f"{status_text}; {time_text}"
+            )
 
     print(f"\nНайдено участников: {len(participants)}")
 
