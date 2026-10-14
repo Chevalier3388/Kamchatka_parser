@@ -122,6 +122,47 @@ def parse_participant_header(line: str) -> dict | None:
     }
 
 
+def parse_stages(pages: list[str]) -> list[dict]:
+    """Извлекает номера и длины этапов, проверяя повторные заголовки."""
+    stages_by_number = {}
+
+    pattern = (
+        r"Этап\s+(?P<number>\d+)\s+длина\s+"
+        r"(?P<distance>\d+(?:[.,]\d+)?)\s+км\b"
+    )
+
+    for text in pages:
+        for match in re.finditer(pattern, text):
+            number = int(match.group("number"))
+            distance_km = float(
+                match.group("distance").replace(",", ".")
+            )
+
+            if number <= 0 or distance_km <= 0:
+                raise ValueError(
+                    f"Некорректный этап: {match.group(0)}"
+                )
+
+            if number in stages_by_number:
+                if stages_by_number[number]["distance_km"] != distance_km:
+                    raise ValueError(
+                        f"Разная длина этапа {number} в заголовках PDF"
+                    )
+            else:
+                stages_by_number[number] = {
+                    "number": number,
+                    "distance_km": distance_km,
+                }
+
+    if not stages_by_number:
+        raise ValueError("В PDF не найдены заголовки этапов")
+
+    return [
+        stages_by_number[number]
+        for number in sorted(stages_by_number)
+    ]
+
+
 def parse_participants(pages: list[str]) -> list[dict]:
     """Собирает участников и связывает их с дисциплинами из PDF."""
     participants = []
@@ -162,6 +203,16 @@ def parse_participants(pages: list[str]) -> list[dict]:
 
 def main() -> None:
     pages = extract_pages(PDF_PATH)
+    stages = parse_stages(pages)
+
+    for stage in stages:
+        print(
+            f"Этап {stage['number']}: "
+            f"{stage['distance_km']} км"
+        )
+
+    print(f"Найдено этапов: {len(stages)}\n")
+
     participants = parse_participants(pages)
 
     for participant in participants:
