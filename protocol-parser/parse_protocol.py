@@ -1,5 +1,6 @@
 import re
 
+from datetime import date
 from pathlib import Path
 
 import pdfplumber
@@ -14,6 +15,21 @@ DISCIPLINE_CODES = {
     "Лыжи длинная дистанция 2 собаки": "ski_2",
     "Нарта-длинная дистанция 8 собак": "sled_8",
     "Нарта-длинная дистанция более 8 собак": "sled_8plus",
+}
+
+MONTH_NUMBERS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
 }
 
 
@@ -355,8 +371,88 @@ def parse_penalties(raw_note: str) -> tuple[list[dict], list[str]]:
     ]
 
 
+def parse_race(pages: list[str]) -> dict:
+    """Извлекает данные гонки из шапки PDF образца 2026 года."""
+    if not pages:
+        raise ValueError("Нет страниц для разбора данных гонки")
+
+    header_text = pages[0].split("Дисциплина ", 1)[0]
+    lines = [
+        line.strip()
+        for line in header_text.splitlines()
+        if line.strip()
+    ]
+
+    date_pattern = (
+        r"(?P<start_day>\d{1,2})\s*[-–—]\s*"
+        r"(?P<end_day>\d{1,2})\s+"
+        r"(?P<month>[А-Яа-яЁё]+)\s+"
+        r"(?P<year>\d{4})\s+г\."
+    )
+
+    for index, line in enumerate(lines):
+        match = re.fullmatch(date_pattern, line)
+
+        if match is None:
+            continue
+
+        title_match = re.search(
+            r"«(?P<name>[^»]+)»",
+            " ".join(lines[:index]),
+        )
+
+        if title_match is None:
+            raise ValueError("В шапке PDF не найдено название гонки")
+
+        raw_name = title_match.group("name").strip()
+
+        if not raw_name:
+            raise ValueError("В шапке PDF указано пустое название гонки")
+
+        month = MONTH_NUMBERS.get(match.group("month").lower())
+
+        if month is None:
+            raise ValueError(f"Неизвестный месяц в датах гонки: {line}")
+
+        year = int(match.group("year"))
+
+        try:
+            start_date = date(year, month, int(match.group("start_day")))
+            end_date = date(year, month, int(match.group("end_day")))
+        except ValueError as error:
+            raise ValueError(f"Некорректные даты гонки: {line}") from error
+
+        if end_date < start_date:
+            raise ValueError(f"Дата окончания раньше даты начала: {line}")
+
+        if index + 1 >= len(lines):
+            raise ValueError("В шапке PDF не найдено место проведения")
+
+        return {
+            "name": f"{raw_name} {year}",
+            "year": year,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "location": lines[index + 1],
+            "raw_name": raw_name,
+            "raw_dates": line,
+        }
+
+    raise ValueError("В шапке PDF не найдены даты гонки")
+
+
 def main() -> None:
     pages = extract_pages(PDF_PATH)
+    race = parse_race(pages)
+
+    print(f"Гонка: {race['name']}")
+    print(f"Год: {race['year']}")
+    print(
+        f"Даты: {race['start_date']} — "
+        f"{race['end_date']}"
+    )
+    print(f"Место: {race['location']}\n")
+
     stages = parse_stages(pages)
 
     for stage in stages:
