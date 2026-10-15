@@ -257,6 +257,63 @@ def parse_stage_results(
     return results, summary_text
 
 
+def parse_summary(text: str) -> dict:
+    """Извлекает общий результат, место из источника и примечание."""
+    tokens = text.split()
+
+    if len(tokens) < 2:
+        raise ValueError(
+            f"Недостаточно данных для общего итога: {text}"
+        )
+
+    raw_speed = tokens[0]
+    raw_result = tokens[1]
+
+    if re.fullmatch(
+            r"\d+(?:[.,]\d+)?|#ЗНАЧ!|#ДЕЛ/0!",
+            raw_speed,
+    ) is None:
+        raise ValueError(
+            f"Неожиданная средняя скорость: {raw_speed}"
+        )
+
+    total_time_seconds = None
+
+    if raw_result in ("DNF", "DNS", "DSQ"):
+        status = raw_result.lower()
+    else:
+        total_time_seconds = duration_to_seconds(raw_result)
+
+        if total_time_seconds == 0:
+            raise ValueError(
+                f"Нулевой общий результат требует проверки: {text}"
+            )
+
+        status = "finished"
+
+    source_place = None
+    note_start = 2
+
+    if (
+            len(tokens) > 2
+            and re.fullmatch(r"[1-9]\d*", tokens[2]) is not None
+    ):
+        source_place = int(tokens[2])
+        note_start = 3
+    elif status == "finished":
+        raise ValueError(
+            f"Не найдено место финишировавшего участника: {text}"
+        )
+
+    return {
+        "raw_result": raw_result,
+        "status": status,
+        "total_time_seconds": total_time_seconds,
+        "source_place": source_place,
+        "raw_note": " ".join(tokens[note_start:]),
+    }
+
+
 def main() -> None:
     pages = extract_pages(PDF_PATH)
     stages = parse_stages(pages)
@@ -279,11 +336,21 @@ def main() -> None:
 
         participant["stage_results"] = results
         participant["summary_text"] = summary_text
+        summary = parse_summary(summary_text)
+        participant["summary"] = summary
 
         print(
             f"\nНомер {participant['start_number']}: "
             f"{participant['full_name']}"
         )
+
+        print(
+            f"  Общий результат: {summary['raw_result']}; "
+            f"статус: {summary['status']}; "
+            f"секунды: {summary['total_time_seconds']}; "
+            f"место из источника: {summary['source_place']}"
+        )
+        print(f"  Примечание: {summary['raw_note']}")
 
         for result in results:
             status_text = result["status"] or "требует проверки"
