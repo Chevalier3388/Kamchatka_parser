@@ -314,6 +314,47 @@ def parse_summary(text: str) -> dict:
     }
 
 
+def parse_penalties(raw_note: str) -> tuple[list[dict], list[str]]:
+    """Извлекает штраф из примечания образца 2026 года и предупреждения."""
+    text = raw_note.strip()
+
+    if text in ("", "0"):
+        return [], []
+
+    pattern = (
+        r"штр\.\s*вр\.\s*(?P<amount>\d+)\s*"
+        r"(?P<unit>мин|сек)\.\s*п[.,]\s*"
+        r"П\.(?P<rule>\d+(?:\.\d+)+)"
+    )
+
+    match = re.fullmatch(pattern, text, flags=re.IGNORECASE)
+
+    if match is None:
+        return [], [
+            f"Не удалось распознать примечание: {raw_note}"
+        ]
+
+    amount = int(match.group("amount"))
+    unit = match.group("unit").lower()
+    seconds = amount * 60 if unit == "мин" else amount
+
+    if seconds <= 0:
+        return [], [
+            f"Некорректная длительность штрафа: {raw_note}"
+        ]
+
+    penalty = {
+        "seconds": seconds,
+        "rule_reference": f"П.{match.group('rule')}",
+        "stage_number": None,
+        "raw_note": raw_note,
+    }
+
+    return [penalty], [
+        "В примечании не указан этап применения штрафа"
+    ]
+
+
 def main() -> None:
     pages = extract_pages(PDF_PATH)
     stages = parse_stages(pages)
@@ -338,6 +379,12 @@ def main() -> None:
         participant["summary_text"] = summary_text
         summary = parse_summary(summary_text)
         participant["summary"] = summary
+        penalties, penalty_warnings = parse_penalties(
+            summary["raw_note"]
+        )
+
+        participant["penalties"] = penalties
+        participant["penalty_warnings"] = penalty_warnings
 
         print(
             f"\nНомер {participant['start_number']}: "
@@ -351,6 +398,16 @@ def main() -> None:
             f"место из источника: {summary['source_place']}"
         )
         print(f"  Примечание: {summary['raw_note']}")
+
+        for penalty in penalties:
+            print(
+                f"  Штраф: {penalty['seconds']} с; "
+                f"пункт правил: {penalty['rule_reference']}; "
+                f"этап: {penalty['stage_number']}"
+            )
+
+        for warning in penalty_warnings:
+            print(f"  Предупреждение: {warning}")
 
         for result in results:
             status_text = result["status"] or "требует проверки"
