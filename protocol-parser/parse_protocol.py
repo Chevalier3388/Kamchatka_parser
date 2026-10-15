@@ -1,3 +1,4 @@
+import argparse
 import json
 import re
 
@@ -6,18 +7,6 @@ from pathlib import Path
 
 import pdfplumber
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PDF_PATH = (
-        PROJECT_ROOT
-        / "docs"
-        / "Total_result_Avacha-2026.pdf"
-)
-JSON_PATH = (
-        PROJECT_ROOT
-        / ".cache"
-        / "protocols"
-        / f"{PDF_PATH.stem}.json"
-)
 
 # Цвет символов водяного знака в PDF-протоколе за 2026 год.
 WATERMARK_GRAY = 0.9098039
@@ -648,12 +637,53 @@ def save_protocol_json(document: dict, path: Path) -> None:
     path.write_text(text + "\n", encoding="utf-8")
 
 
+def parse_arguments() -> argparse.Namespace:
+    """Разбирает пути к исходному PDF и выходному JSON."""
+    parser = argparse.ArgumentParser(
+        description="Разбор PDF-протокола образца 2026 года в JSON.",
+    )
+    parser.add_argument(
+        "--pdf",
+        type=Path,
+        help="Путь к исходному PDF-файлу (обязательный параметр)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Путь к JSON (по умолчанию: рядом с PDF, с тем же именем)",
+    )
+
+    args = parser.parse_args()
+
+    if args.pdf is None:
+        parser.error("Укажите путь к исходному PDF-файлу через параметр --pdf.")
+
+    if not args.pdf.is_file():
+        parser.error(f"Не найден PDF-файл: {args.pdf}")
+
+    if args.output is None:
+        args.output = args.pdf.with_suffix(".json")
+
+    if args.output.is_dir():
+        parser.error(
+            f"В --output указан каталог, нужен путь к JSON-файлу: {args.output}"
+        )
+
+    if args.output.resolve() == args.pdf.resolve():
+        parser.error(
+            "Пути исходного PDF и выходного JSON должны отличаться"
+        )
+
+    return args
+
+
 def main() -> None:
-    document = parse_protocol(PDF_PATH)
+    args = parse_arguments()
+    document = parse_protocol(args.pdf)
     print("Проверка структуры и времени: пройдена")
 
-    save_protocol_json(document, JSON_PATH)
-    print(f"JSON сохранён: {JSON_PATH}")
+    save_protocol_json(document, args.output)
+    print(f"JSON сохранён: {args.output}")
 
     stage_result_count = sum(
         len(participant["stage_results"])
