@@ -1,3 +1,4 @@
+import json
 import re
 
 from datetime import date
@@ -6,7 +7,17 @@ from pathlib import Path
 import pdfplumber
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PDF_PATH = PROJECT_ROOT / "docs" / "Total_result_Avacha-2026.pdf"
+PDF_PATH = (
+        PROJECT_ROOT
+        / "docs"
+        / "Total_result_Avacha-2026.pdf"
+)
+JSON_PATH = (
+        PROJECT_ROOT
+        / ".cache"
+        / "protocols"
+        / f"{PDF_PATH.stem}.json"
+)
 
 # Цвет символов водяного знака в PDF-протоколе за 2026 год.
 WATERMARK_GRAY = 0.9098039
@@ -624,9 +635,25 @@ def parse_protocol(path: Path) -> dict:
     return document
 
 
+def save_protocol_json(document: dict, path: Path) -> None:
+    """Сохраняет проверенные данные протокола в JSON."""
+    text = json.dumps(
+        document,
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text + "\n", encoding="utf-8")
+
+
 def main() -> None:
     document = parse_protocol(PDF_PATH)
     print("Проверка структуры и времени: пройдена")
+
+    save_protocol_json(document, JSON_PATH)
+    print(f"JSON сохранён: {JSON_PATH}")
 
     stage_result_count = sum(
         len(participant["stage_results"])
