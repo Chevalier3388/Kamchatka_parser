@@ -441,9 +441,57 @@ def parse_race(pages: list[str]) -> dict:
     raise ValueError("В шапке PDF не найдены даты гонки")
 
 
+def parse_protocol_metadata(pages: list[str]) -> tuple[dict, list[str]]:
+    """Извлекает погоду и подписи судей из PDF образца 2026 года."""
+    fields = {
+        "weather": "Погодные условия",
+        "chief_judge": "Главный судья",
+        "chief_secretary": "Главный секретарь",
+    }
+    metadata = {field: None for field in fields}
+
+    for text in pages:
+        for line in text.splitlines():
+            line = line.strip()
+
+            for field, label in fields.items():
+                match = re.fullmatch(
+                    rf"{re.escape(label)}\b\s*:?\s*(?P<value>.*)",
+                    line,
+                    flags=re.IGNORECASE,
+                )
+
+                if match is None:
+                    continue
+
+                value = match.group("value").strip()
+
+                if not value:
+                    break
+
+                previous_value = metadata[field]
+
+                if previous_value is not None and previous_value != value:
+                    raise ValueError(
+                        f"Разные значения поля «{label}» в PDF"
+                    )
+
+                metadata[field] = value
+                break
+
+    warnings = []
+
+    for field, label in fields.items():
+        if metadata[field] is None:
+            warnings.append(f"В протоколе не найдено поле: {label}")
+
+    return metadata, warnings
+
+
 def main() -> None:
     pages = extract_pages(PDF_PATH)
     race = parse_race(pages)
+    metadata, metadata_warnings = parse_protocol_metadata(pages)
 
     print(f"Гонка: {race['name']}")
     print(f"Год: {race['year']}")
@@ -452,7 +500,17 @@ def main() -> None:
         f"{race['end_date']}"
     )
     print(f"Место: {race['location']}\n")
+    print(f"Погода: {metadata['weather'] or 'не указана'}")
+    print(f"Главный судья: {metadata['chief_judge'] or 'не указан'}")
+    print(
+        f"Главный секретарь: "
+        f"{metadata['chief_secretary'] or 'не указан'}"
+    )
 
+    for warning in metadata_warnings:
+        print(f"Предупреждение: {warning}")
+
+    print()
     stages = parse_stages(pages)
 
     for stage in stages:
