@@ -488,93 +488,74 @@ def parse_protocol_metadata(pages: list[str]) -> tuple[dict, list[str]]:
     return metadata, warnings
 
 
-def main() -> None:
-    pages = extract_pages(PDF_PATH)
+def parse_protocol(path: Path) -> dict:
+    """Собирает данные PDF-протокола и предупреждения в один словарь."""
+    pages = extract_pages(path)
     race = parse_race(pages)
     metadata, metadata_warnings = parse_protocol_metadata(pages)
-
-    print(f"Гонка: {race['name']}")
-    print(f"Год: {race['year']}")
-    print(
-        f"Даты: {race['start_date']} — "
-        f"{race['end_date']}"
-    )
-    print(f"Место: {race['location']}\n")
-    print(f"Погода: {metadata['weather'] or 'не указана'}")
-    print(f"Главный судья: {metadata['chief_judge'] or 'не указан'}")
-    print(
-        f"Главный секретарь: "
-        f"{metadata['chief_secretary'] or 'не указан'}"
-    )
-
-    for warning in metadata_warnings:
-        print(f"Предупреждение: {warning}")
-
-    print()
     stages = parse_stages(pages)
-
-    for stage in stages:
-        print(
-            f"Этап {stage['number']}: "
-            f"{stage['distance_km']} км"
-        )
-
-    print(f"Найдено этапов: {len(stages)}\n")
-
     participants = parse_participants(pages)
+    warnings = metadata_warnings.copy()
 
     for participant in participants:
         results, summary_text = parse_stage_results(
             participant["results_text"],
             stages,
         )
-
-        participant["stage_results"] = results
-        participant["summary_text"] = summary_text
         summary = parse_summary(summary_text)
-        participant["summary"] = summary
         penalties, penalty_warnings = parse_penalties(
             summary["raw_note"]
         )
 
+        participant["stage_results"] = results
+        participant["summary_text"] = summary_text
+        participant["summary"] = summary
         participant["penalties"] = penalties
         participant["penalty_warnings"] = penalty_warnings
 
-        print(
-            f"\nНомер {participant['start_number']}: "
-            f"{participant['full_name']}"
-        )
-
-        print(
-            f"  Общий результат: {summary['raw_result']}; "
-            f"статус: {summary['status']}; "
-            f"секунды: {summary['total_time_seconds']}; "
-            f"место из источника: {summary['source_place']}"
-        )
-        print(f"  Примечание: {summary['raw_note']}")
-
-        for penalty in penalties:
-            print(
-                f"  Штраф: {penalty['seconds']} с; "
-                f"пункт правил: {penalty['rule_reference']}; "
-                f"этап: {penalty['stage_number']}"
-            )
+        for result in results:
+            if result["warning"] is not None:
+                warnings.append(
+                    f"Участник №{participant['start_number']}, "
+                    f"этап {result['stage_number']}: {result['warning']}"
+                )
 
         for warning in penalty_warnings:
-            print(f"  Предупреждение: {warning}")
-
-        for result in results:
-            status_text = result["status"] or "требует проверки"
-            seconds = result["final_time_seconds"]
-            time_text = "—" if seconds is None else f"{seconds} с"
-
-            print(
-                f"  Этап {result['stage_number']}: "
-                f"{result['raw_result']} → "
-                f"{status_text}; {time_text}"
+            warnings.append(
+                f"Участник №{participant['start_number']}: {warning}"
             )
+    return {
+        "source_filename": path.name,
+        "race": race,
+        "protocol_metadata": metadata,
+        "stages": stages,
+        "participants": participants,
+        "warnings": warnings,
+    }
 
-    print(f"\nНайдено участников: {len(participants)}")
+
+def main() -> None:
+    document = parse_protocol(PDF_PATH)
+
+    stage_result_count = sum(
+        len(participant["stage_results"])
+        for participant in document["participants"]
+    )
+    penalty_count = sum(
+        len(participant["penalties"])
+        for participant in document["participants"]
+    )
+
+    print(f"Файл: {document['source_filename']}")
+    print(f"Гонка: {document['race']['name']}")
+    print(f"Этапов: {len(document['stages'])}")
+    print(f"Участников: {len(document['participants'])}")
+    print(f"Результатов этапов: {stage_result_count}")
+    print(f"Штрафов: {penalty_count}")
+    print(f"Предупреждений: {len(document['warnings'])}")
+
+    for warning in document["warnings"]:
+        print(f"  - {warning}")
 
 
 if __name__ == "__main__":
