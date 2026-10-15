@@ -488,6 +488,92 @@ def parse_protocol_metadata(pages: list[str]) -> tuple[dict, list[str]]:
     return metadata, warnings
 
 
+def validate_protocol(document: dict) -> None:
+    """Проверяет участников, набор результатов этапов и общее время."""
+    stages = document["stages"]
+    participants = document["participants"]
+
+    if not stages:
+        raise ValueError("В документе нет этапов")
+
+    if not participants:
+        raise ValueError("В документе нет участников")
+
+    stage_numbers = [stage["number"] for stage in stages]
+
+    if len(stage_numbers) != len(set(stage_numbers)):
+        raise ValueError("В документе повторяются номера этапов")
+
+    expected_stage_numbers = sorted(stage_numbers)
+    seen_start_numbers = set()
+
+    for participant in participants:
+        number = participant["start_number"]
+
+        if number in seen_start_numbers:
+            raise ValueError(f"Повторяется стартовый номер: {number}")
+
+        seen_start_numbers.add(number)
+        results = participant["stage_results"]
+        result_stage_numbers = sorted(
+            result["stage_number"] for result in results
+        )
+
+        if result_stage_numbers != expected_stage_numbers:
+            raise ValueError(
+                f"Участник №{number}: номера результатов этапов "
+                f"{result_stage_numbers} не совпадают с этапами "
+                f"{expected_stage_numbers}"
+            )
+
+        for result in results:
+            context = f"Участник №{number}, этап {result['stage_number']}"
+            seconds = result["final_time_seconds"]
+
+            if result["status"] == "finished":
+                if type(seconds) is not int or seconds <= 0:
+                    raise ValueError(
+                        f"{context}: время должно быть целым числом "
+                        "секунд больше нуля"
+                    )
+            elif seconds is not None:
+                raise ValueError(
+                    f"{context}: время указано для статуса "
+                    f"{result['status']}"
+                )
+        summary = participant["summary"]
+        total = summary["total_time_seconds"]
+
+        if summary["status"] != "finished":
+            if total is not None:
+                raise ValueError(
+                    f"Участник №{number}: общее время указано "
+                    "без статуса finished"
+                )
+            continue
+
+        if type(total) is not int or total <= 0:
+            raise ValueError(
+                f"Участник №{number}: некорректное общее время"
+            )
+
+        if any(result["status"] != "finished" for result in results):
+            raise ValueError(
+                f"Участник №{number}: общий статус finished, "
+                "но завершены не все этапы"
+            )
+
+        calculated_total = sum(
+            result["final_time_seconds"] for result in results
+        )
+
+        if total != calculated_total:
+            raise ValueError(
+                f"Участник №{number}: общий результат {total} с, "
+                f"а сумма этапов {calculated_total} с"
+            )
+
+
 def parse_protocol(path: Path) -> dict:
     """Собирает данные PDF-протокола и предупреждения в один словарь."""
     pages = extract_pages(path)
@@ -524,7 +610,7 @@ def parse_protocol(path: Path) -> dict:
             warnings.append(
                 f"Участник №{participant['start_number']}: {warning}"
             )
-    return {
+    document = {
         "source_filename": path.name,
         "race": race,
         "protocol_metadata": metadata,
@@ -533,9 +619,14 @@ def parse_protocol(path: Path) -> dict:
         "warnings": warnings,
     }
 
+    validate_protocol(document)
+
+    return document
+
 
 def main() -> None:
     document = parse_protocol(PDF_PATH)
+    print("Проверка структуры и времени: пройдена")
 
     stage_result_count = sum(
         len(participant["stage_results"])
